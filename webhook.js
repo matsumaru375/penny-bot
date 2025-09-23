@@ -1,4 +1,4 @@
-// api/webhook.js — LINE返信だけの超ミニマム版（デバッグ用）
+// api/webhook.js — 最小デバッグ版（受信ログ + 何が来ても "pong" 返信）
 
 export default async function handler(req, res) {
   try {
@@ -6,24 +6,30 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, tip: 'Use POST from LINE' });
     }
 
-    // Vercelの環境変数からトークン取得（スペル要一致）
+    // 環境変数（スペル完全一致！）
     const LINE_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 
-    // 受信ボディの取得（環境差吸収）
-    const body = req.body && Object.keys(req.body).length ? req.body
-               : (await readJson(req).catch(() => ({})));
+    // 受信ボディ取得（環境差吸収）
+    const body =
+      req.body && Object.keys(req.body).length
+        ? req.body
+        : (await readJson(req).catch(() => ({})));
 
-    console.log('[webhook] body =', JSON.stringify(body));
+    // ★ 受信ログ
+    console.log('=== LINE Webhook Request ===');
+    console.log(JSON.stringify(body, null, 2));
+    console.log('=============================');
 
     const events = body?.events || [];
     for (const ev of events) {
       if (ev.type === 'message') {
-        // 何が来ても “pong” と返す
+        // 返信ペイロード
         const replyPayload = {
           replyToken: ev.replyToken,
           messages: [{ type: 'text', text: 'pong' }],
         };
 
+        // ★ 返信実行
         const resp = await fetch('https://api.line.me/v2/bot/message/reply', {
           method: 'POST',
           headers: {
@@ -34,7 +40,7 @@ export default async function handler(req, res) {
         });
 
         const text = await resp.text();
-        console.log('[reply] status=', resp.status, 'body=', text);
+        console.log('[reply] status =', resp.status, 'body =', text);
       }
     }
 

@@ -1,98 +1,62 @@
-// api/webhook.js
+// api/webhook.js — LINE返信だけの超ミニマム版（デバッグ用）
+
 export default async function handler(req, res) {
-  // VercelはNode.js環境なのでreq.methodなどがそのまま使えます
-
-  // LINEの署名確認は省略版（必要なら追加可能）
-  if (req.method !== 'POST') {
-    // POST以外はそのままOKを返す
-    res.status(200).json({ message: 'LINE bot is running.' });
-    return;
-  }
-
-  // 受け取ったイベント一覧
-  const events = req.body.events || [];
-
-  // OpenAI APIキー
-  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-  const LINE_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-
-  // OpenAIのエンドポイント
-  const OPENAI_URL = 'https://api.openai.com/v1/responses';
-
-  // 返信用の関数
-  async function replyMessage(replyToken, text) {
-    await fetch('https://api.line.me/v2/bot/message/reply', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${LINE_ACCESS_TOKEN}`
-      },
-      body: JSON.stringify({
-        replyToken,
-        messages: [{ type: 'text', text }]
-      })
-    });
-  }
-
-  // 占いと音楽提案のsystemメッセージ
-  const TAROT_SYSTEM = `あなたはスナックペニーのタロット占い師です。ウェイト版を基準に日本語でやさしく占い結果を説明してください。`;
-  const MUSIC_SYSTEM = `あなたはスナックペニーのカラオケ曲アドバイザーです。指定条件からおすすめ曲3つと理由を日本語で提案してください。`;
-
-  // OpenAIへ問い合わせ
-  async function askOpenAI(system, userText) {
-    const r = await fetch(OPENAI_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        input: [
-          { role: 'system', content: system },
-          { role: 'user', content: userText }
-        ]
-      })
-    });
-    const j = await r.json();
-    return j.output_text || '回答を取得できませんでした。';
-  }
-
-// 受信イベントを順番に処理
-for (const ev of events) {
-  if (ev.type === 'message' && ev.message.type === 'text') {
-    const text = ev.message.text.trim();
-    let answer = '';
-
-    // 👇 ここから追加 ーーーーーーーーーーーーーーーーーーーーーーー
-    if (text === '占い結果') {
-      answer = `🔮占い結果を出すには以下を埋めて送信してください
-相談：＿＿＿＿＿＿
-（できるだけ具体的に。例：3年間片思いしている彼に告白すべきか迷っている）
-スプレッド：1枚 / 3枚 / ケルト十字
-カード：
-1）＿＿＿＿（正/逆）
-2）＿＿＿＿（正/逆）
-3）＿＿＿＿（正/逆）
-※年齢・性別も任意で書くと、より的確な言葉でお答えできます。`;
-      await replyMessage(ev.replyToken, answer);
-      continue; // この後の占い/音楽分岐には進ませない
-    }
-    // 👆 ここまで追加 ーーーーーーーーーーーーーーーーーーーーーーー
-
-    if (text.startsWith('占い')) {
-      answer = await askOpenAI(TAROT_SYSTEM, text.replace(/^占い\s*/, ''));
-    } else if (text.startsWith('音楽')) {
-      answer = await askOpenAI(MUSIC_SYSTEM, text.replace(/^音楽\s*/, ''));
-    } else {
-      answer = '使い方:\n占い 相談:内容 カード:女帝 正位置\n音楽 条件:昭和歌謡 女性';
+  try {
+    if (req.method !== 'POST') {
+      return res.status(200).json({ ok: true, tip: 'Use POST from LINE' });
     }
 
-    await replyMessage(ev.replyToken, answer);
+    // Vercelの環境変数からトークン取得（スペル要一致）
+    const LINE_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+
+    // 受信ボディの取得（環境差吸収）
+    const body = req.body && Object.keys(req.body).length ? req.body
+               : (await readJson(req).catch(() => ({})));
+
+    console.log('[webhook] body =', JSON.stringify(body));
+
+    const events = body?.events || [];
+    for (const ev of events) {
+      if (ev.type === 'message') {
+        // 何が来ても “pong” と返す
+        const replyPayload = {
+          replyToken: ev.replyToken,
+          messages: [{ type: 'text', text: 'pong' }],
+        };
+
+        const resp = await fetch('https://api.line.me/v2/bot/message/reply', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${LINE_ACCESS_TOKEN}`,
+          },
+          body: JSON.stringify(replyPayload),
+        });
+
+        const text = await resp.text();
+        console.log('[reply] status=', resp.status, 'body=', text);
+      }
+    }
+
+    return res.status(200).json({ ok: true });
+  } catch (e) {
+    console.error('[webhook] error:', e);
+    return res.status(200).json({ ok: false, error: String(e) });
   }
 }
 
-
-  // LINEへ「受け取りました」と返す（HTTP 200）
-  res.status(200).json({ status: 'ok' });
+// 生ボディしか来ない環境向けの簡易reader
+async function readJson(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (c) => (data += c));
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(data || '{}'));
+      } catch (e) {
+        reject(e);
+      }
+    });
+    req.on('error', reject);
+  });
 }

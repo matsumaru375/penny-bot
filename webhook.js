@@ -58,21 +58,40 @@ export default async function handler(req, res) {
     return j.output_text || '回答を取得できませんでした。';
   }
 
-  // 受信イベントを順番に処理
-  for (const ev of events) {
-    if (ev.type === 'message' && ev.message.type === 'text') {
-      const text = ev.message.text.trim();
-      let answer = '';
-      if (text.startsWith('占い')) {
-        answer = await askOpenAI(TAROT_SYSTEM, text.replace(/^占い\s*/, ''));
-      } else if (text.startsWith('音楽')) {
-        answer = await askOpenAI(MUSIC_SYSTEM, text.replace(/^音楽\s*/, ''));
-      } else {
-        answer = '使い方:\n占い 相談:内容 カード:女帝 正位置\n音楽 条件:昭和歌謡 女性';
-      }
+// 受信イベントを順番に処理
+for (const ev of events) {
+  if (ev.type === 'message' && ev.message.type === 'text') {
+    const text = ev.message.text.trim();
+    let answer = '';
+
+    // 👇 ここから追加 ーーーーーーーーーーーーーーーーーーーーーーー
+    if (text === '占い結果') {
+      answer = `🔮占い結果を出すには以下を埋めて送信してください
+相談：＿＿＿＿＿＿
+（できるだけ具体的に。例：3年間片思いしている彼に告白すべきか迷っている）
+スプレッド：1枚 / 3枚 / ケルト十字
+カード：
+1）＿＿＿＿（正/逆）
+2）＿＿＿＿（正/逆）
+3）＿＿＿＿（正/逆）
+※年齢・性別も任意で書くと、より的確な言葉でお答えできます。`;
       await replyMessage(ev.replyToken, answer);
+      continue; // この後の占い/音楽分岐には進ませない
     }
+    // 👆 ここまで追加 ーーーーーーーーーーーーーーーーーーーーーーー
+
+    if (text.startsWith('占い')) {
+      answer = await askOpenAI(TAROT_SYSTEM, text.replace(/^占い\s*/, ''));
+    } else if (text.startsWith('音楽')) {
+      answer = await askOpenAI(MUSIC_SYSTEM, text.replace(/^音楽\s*/, ''));
+    } else {
+      answer = '使い方:\n占い 相談:内容 カード:女帝 正位置\n音楽 条件:昭和歌謡 女性';
+    }
+
+    await replyMessage(ev.replyToken, answer);
   }
+}
+
 
   // LINEへ「受け取りました」と返す（HTTP 200）
   res.status(200).json({ status: 'ok' });

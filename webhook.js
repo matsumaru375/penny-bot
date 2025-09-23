@@ -1,4 +1,8 @@
-// api/webhook.js — 最小デバッグ版（受信ログ + 何が来ても "pong" 返信）
+// api/webhook.js
+
+export const config = {
+  api: { bodyParser: false },   // ★LINE署名のため必須
+};
 
 export default async function handler(req, res) {
   try {
@@ -6,16 +10,10 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, tip: 'Use POST from LINE' });
     }
 
-    // 環境変数（スペル完全一致！）
     const LINE_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 
-    // 受信ボディ取得（環境差吸収）
-    const body =
-      req.body && Object.keys(req.body).length
-        ? req.body
-        : (await readJson(req).catch(() => ({})));
-
-    // ★ 受信ログ
+    // 生ボディを読む
+    const body = await readJson(req);
     console.log('=== LINE Webhook Request ===');
     console.log(JSON.stringify(body, null, 2));
     console.log('=============================');
@@ -23,13 +21,11 @@ export default async function handler(req, res) {
     const events = body?.events || [];
     for (const ev of events) {
       if (ev.type === 'message') {
-        // 返信ペイロード
         const replyPayload = {
           replyToken: ev.replyToken,
           messages: [{ type: 'text', text: 'pong' }],
         };
 
-        // ★ 返信実行
         const resp = await fetch('https://api.line.me/v2/bot/message/reply', {
           method: 'POST',
           headers: {
@@ -51,17 +47,13 @@ export default async function handler(req, res) {
   }
 }
 
-// 生ボディしか来ない環境向けの簡易reader
 async function readJson(req) {
   return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', (c) => (data += c));
+    req.on('data', (chunk) => (data += chunk));
     req.on('end', () => {
-      try {
-        resolve(JSON.parse(data || '{}'));
-      } catch (e) {
-        reject(e);
-      }
+      try { resolve(JSON.parse(data || '{}')); }
+      catch (e) { reject(e); }
     });
     req.on('error', reject);
   });
